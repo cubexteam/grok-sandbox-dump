@@ -1,131 +1,133 @@
 # grok-sandbox-dump
 
-> 🔍 Анализ изолированной среды выполнения кода Grok (xAI) — системные файлы, конфигурация контейнера и Python REPL.
+> 🔍 Analysis of the Grok (xAI) code execution sandbox — system files, container configuration, and Python REPL internals.
+
+📖 [Читать на русском](README_RU.md)
 
 ---
 
-## Что это такое
+## What is this?
 
-Этот репозиторий содержит дамп внутренней среды выполнения кода **Grok** (xAI). Файлы были получены изнутри контейнера, в котором Grok запускает пользовательский Python-код. Дамп включает системные файлы, информацию об окружении и исходный код Python REPL-сервера.
+This repository contains a dump of the internal code execution environment used by **Grok** (xAI). The files were obtained from inside the container where Grok runs user Python code. The dump includes system files, environment configuration, and the source code of the Python REPL server.
 
 ---
 
-## Содержимое
+## Contents
 
 ```
 application.zip
-├── pyrepl.py               # Python REPL-сервер Grok (исходный код)
-├── os-release              # Версия ОС
+├── pyrepl.py               # Grok's Python REPL server (source code)
+├── os-release              # OS version
 ├── issue                   # /etc/issue
-├── passwd                  # Пользователи системы
+├── passwd                  # System users
 ├── hosts                   # /etc/hosts
-├── resolv.conf             # DNS-конфигурация
-├── .bashrc_from_root       # .bashrc root-пользователя
-├── group                   # Группы системы
+├── resolv.conf             # DNS configuration
+├── .bashrc_from_root       # root user .bashrc
+├── group                   # System groups
 ├── profile                 # /etc/profile
 ├── proc/
-│   ├── version             # Версия ядра Linux
-│   ├── mounts              # Смонтированные файловые системы
-│   ├── cgroup              # cgroup-иерархия контейнера
-│   └── cmdline             # Командная строка init-процесса
+│   ├── version             # Linux kernel version
+│   ├── mounts              # Mounted filesystems
+│   ├── cgroup              # Container cgroup hierarchy
+│   └── cmdline             # Init process command line
 └── extra/
-    ├── shadow              # /etc/shadow (хэши паролей)
-    ├── .profile            # Профиль пользователя
-    ├── environment         # Переменные окружения
+    ├── shadow              # /etc/shadow (password hashes)
+    ├── .profile            # User profile
+    ├── environment         # Environment variables
     ├── cpuinfo             # /proc/cpuinfo
     ├── meminfo             # /proc/meminfo
-    ├── sources.list        # APT-источники пакетов
-    └── hostname            # Имя хоста
+    ├── sources.list        # APT package sources
+    └── hostname            # Hostname
 ```
 
 ---
 
-## Характеристики среды
+## Environment Overview
 
-### Операционная система
-| Параметр | Значение |
+### Operating System
+| Parameter | Value |
 |---|---|
-| ОС | Ubuntu 24.04.4 LTS (Noble Numbat) |
-| Ядро | Linux 4.4.0 (виртуализированное) |
+| OS | Ubuntu 24.04.4 LTS (Noble Numbat) |
+| Kernel | Linux 4.4.0 (virtualized) |
 | Hostname | `localhost.localdomain` |
 
-### Железо (виртуальное)
-| Параметр | Значение |
+### Hardware (virtual)
+| Parameter | Value |
 |---|---|
 | CPU | Intel Sapphire Rapids (model 143) |
-| vCPU | 2 ядра @ 2699 MHz |
+| vCPU | 2 cores @ 2699 MHz |
 | L2 cache | 8192 KB |
 | RAM | 2 GB |
-| Swap | Нет |
+| Swap | None |
 
-### Контейнеризация
-| Параметр | Значение |
+### Containerization
+| Parameter | Value |
 |---|---|
-| Файловая система | overlay (read-write) |
-| Init-процесс | `catatonit -P` (из `/hades-container-tools/`) |
+| Filesystem | overlay (read-write) |
+| Init process | `catatonit -P` (from `/hades-container-tools/`) |
 | cgroup prefix | `/hds-*` (hades) |
-| Виртуальные тома | 9p-протокол (Plan 9 filesystem) |
-| Изоляция | cgroups v1: cpu, cpuacct, cpuset, memory, pids, devices |
+| Virtual volumes | 9p protocol (Plan 9 filesystem) |
+| Isolation | cgroups v1: cpu, cpuacct, cpuset, memory, pids, devices |
 
-### Монтирования (выборка)
+### Mounts (selected)
 ```
-none /           overlay   rw
-none /dev        dev       rw,nosuid
-none /sys        sysfs     ro,noexec,nosuid
-none /proc       proc      rw,noexec,nosuid
-none /etc/hosts  9p        ro
-none /README.xai 9p        ro       ← артефакт xAI
-none /hades-container-tools 9p ro   ← инфраструктура "Hades"
+none /                      overlay   rw
+none /dev                   dev       rw,nosuid
+none /sys                   sysfs     ro,noexec,nosuid
+none /proc                  proc      rw,noexec,nosuid
+none /etc/hosts             9p        ro
+none /README.xai            9p        ro       ← xAI artifact
+none /hades-container-tools 9p        ro       ← "Hades" infrastructure
 ```
 
 ---
 
-## pyrepl.py — Python REPL Grok
+## pyrepl.py — Grok's Python REPL
 
-Ключевая находка: исходный код сервера, который Grok использует для выполнения Python-кода.
+The most interesting find: the source code of the server Grok uses to execute Python code.
 
-### Принцип работы
+### How it works
 
 ```
 stdin → JSON → PyRepl.line() → exec() → JSON → stdout
 ```
 
-1. Читает команды из stdin построчно в формате JSON
-2. Поддерживает две команды: `{"ping": ...}` и `{"eval": "<код>"}`
-3. Выполняет код через `exec()` в разделяемом `locals`-словаре (состояние сохраняется между вызовами)
-4. Перехватывает stdout/stderr через `contextlib.redirect_*`
-5. Возвращает результат в JSON: `{"ret": ..., "stdout": ..., "stderr": ...}`
+1. Reads commands from stdin line by line in JSON format
+2. Supports two commands: `{"ping": ...}` and `{"eval": "<code>"}`
+3. Executes code via `exec()` in a shared `locals` dict (state persists between calls)
+4. Captures stdout/stderr via `contextlib.redirect_*`
+5. Returns result as JSON: `{"ret": ..., "stdout": ..., "stderr": ...}`
 
-### Пример протокола
+### Protocol example
 
 ```json
-// Запрос
+// Request
 {"eval": "x = 42\nx * 2"}
 
-// Ответ
+// Response
 {"ret": "84", "stdout": "", "stderr": ""}
 
 // Ping/pong
 {"ping": 1} → {"pong": 17}
 ```
 
-### Особенности реализации
+### Implementation notes
 
-- Состояние сохраняется между вызовами (`self.locals` — общий словарь)
-- AST-парсинг перед `exec` — последнее выражение автоматически становится возвращаемым значением (`_ret`)
-- Ошибки синтаксиса и runtime возвращаются в поле `pyerror` с полным traceback
+- State is preserved between calls (`self.locals` is a shared dict)
+- AST parsing before `exec` — the last expression automatically becomes the return value (`_ret`)
+- Syntax and runtime errors are returned in the `pyerror` field with a full traceback
 
 ---
 
-## Инфраструктурные выводы
+## Infrastructure Findings
 
-- Проект называется **"Hades"** (`/hades-container-tools`, cgroup prefix `hds-`)
-- Файл `/README.xai` монтируется как отдельный 9p-том — вероятно, содержит документацию или метаданные среды
-- Среда полностью изолирована: нет swap, нет сети (только DNS через 9p), read-only /sys
-- Ядро 4.4.0 — старое, что типично для гипервизорных сред с собственным патчем
+- The internal project is called **"Hades"** (`/hades-container-tools`, cgroup prefix `hds-`)
+- `/README.xai` is mounted as a separate 9p volume — likely contains environment docs or metadata
+- The environment is fully isolated: no swap, no network (DNS only via 9p), read-only `/sys`
+- Kernel 4.4.0 is intentionally old — typical for hypervisor environments with custom patches
 
 ---
 
 ## Disclaimer
 
-Данный репозиторий создан исключительно в исследовательских целях. Никаких учётных данных, токенов или приватной информации пользователей не содержится. Анализ проводился на основе публично доступных и общеизвестных принципов контейнеризации Linux.
+This repository is for research and educational purposes only. No credentials, tokens, or private user data are included. The analysis is based on publicly available Linux containerization principles.
